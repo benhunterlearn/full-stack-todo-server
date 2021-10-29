@@ -17,4 +17,13 @@ public class TodoItem {
     private Long id;
     private String content;
     private Boolean completed;
+
+    public void patch(TodoItem todoItem) {
+        if (todoItem.getContent() != null) {
+            this.content = todoItem.content;
+        }
+        if (todoItem.getCompleted() != null) {
+            this.completed = todoItem.completed;
+        }
+    }
 }

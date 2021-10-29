@@ -1,5 +1,7 @@
 package com.swf.serverfullstacktodo;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import org.hamcrest.core.Is;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,13 +11,18 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.RequestBuilder;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Optional;
+
 import static org.junit.jupiter.api.Assertions.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -26,6 +33,7 @@ class TodoControllerTest {
     private MockMvc mvc;
 
     private TodoRepository repository;
+    private ObjectMapper mapper = new JsonMapper();
     private TodoItem firstTodoItem;
     private TodoItem secondTodoItem;
 
@@ -43,7 +51,7 @@ class TodoControllerTest {
 
         this.secondTodoItem = new TodoItem()
                 .setContent("second todo")
-                .setCompleted(false);
+                .setCompleted(true);
         this.secondTodoItem = repository.save(secondTodoItem);
 
     }
@@ -54,16 +62,83 @@ class TodoControllerTest {
 
     @Test
     void getAllTodoItems() throws Exception {
-        RequestBuilder requestBuilder = MockMvcRequestBuilders.get("api/items")
+        RequestBuilder requestBuilder = MockMvcRequestBuilders.get("/api/items")
                 .accept(MediaType.APPLICATION_JSON);
-        mvc.perform(requestBuilder)
+        this.mvc.perform(requestBuilder)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id", Is.is(this.firstTodoItem.getId())))
+                .andExpect(jsonPath("$[0].id", Is.is(this.firstTodoItem.getId().intValue())))
                 .andExpect(jsonPath("$[0].content", Is.is(this.firstTodoItem.getContent())))
                 .andExpect(jsonPath("$[0].completed", Is.is(this.firstTodoItem.getCompleted())))
-                .andExpect(jsonPath("$[1].id", Is.is(this.secondTodoItem.getId())))
+                .andExpect(jsonPath("$[1].id", Is.is(this.secondTodoItem.getId().intValue())))
                 .andExpect(jsonPath("$[1].content", Is.is(this.secondTodoItem.getContent())))
                 .andExpect(jsonPath("$[1].completed", Is.is(this.secondTodoItem.getCompleted())));
-        // check at least 2 items
+    }
+
+    @Test
+    void getTodoItemByIdThatExists() throws Exception {
+        RequestBuilder requestBuilder = MockMvcRequestBuilders
+                .get("/api/items/" + this.firstTodoItem.getId().toString());
+        this.mvc.perform(requestBuilder)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id", Is.is(this.firstTodoItem.getId().intValue())))
+                .andExpect(jsonPath("$.content", Is.is(this.firstTodoItem.getContent())))
+                .andExpect(jsonPath("$.completed", Is.is(this.firstTodoItem.getCompleted())));
+    }
+
+    @Test
+    void postCreatesNewTodoItemInRepositoryAndRespondsWithTodoItemThatHasId() throws Exception {
+        TodoItem todoItem = new TodoItem()
+                .setContent("this is new")
+                .setCompleted(false);
+
+        RequestBuilder requestBuilder = MockMvcRequestBuilders
+                .post("/api/items")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(todoItem));
+        MvcResult result = this.mvc.perform(requestBuilder)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").isNumber())
+                .andExpect(jsonPath("$.content", Is.is(todoItem.getContent())))
+                .andExpect(jsonPath("$.completed", Is.is(todoItem.getCompleted())))
+                .andReturn();
+
+        TodoItem responseTodoItem = mapper.readValue(result.getResponse().getContentAsString(), TodoItem.class);
+        assertNotNull(responseTodoItem);
+    }
+
+    @Test
+    void patchUpdatesTodoItemWithNewData() throws Exception {
+        TodoItem todoItem = this.repository.findById(this.firstTodoItem.getId()).get();
+        String freshMemes = "fresh memes";
+        todoItem.setContent(freshMemes);
+
+        String jsonTodoItem = "{\"content\":\"" + freshMemes + "\"" +
+                ",\"id\":" + this.firstTodoItem.getId().toString() +
+                ",\"completed\":" + this.firstTodoItem.getCompleted().toString() +
+                "}";
+
+        // Passing test with:
+        // Body = {"id":169,"content":"fresh memes","completed":false}
+
+        RequestBuilder requestBuilder = MockMvcRequestBuilders
+                .patch("/api/items/" + this.firstTodoItem.getId().toString())
+                .contentType(MediaType.APPLICATION_JSON)
+//                .content(mapper.writeValueAsString(todoItem));
+                .content(jsonTodoItem);
+        this.mvc.perform(requestBuilder)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id", Is.is(this.firstTodoItem.getId().intValue())))
+                .andExpect(jsonPath("$.content", Is.is(freshMemes)))
+                .andExpect(jsonPath("$.completed", Is.is(this.firstTodoItem.getCompleted())));
+    }
+
+    @Test
+    void deleteTodoItemByIdThatExists() throws Exception {
+        RequestBuilder requestBuilder = MockMvcRequestBuilders
+                .delete("/api/items/" + this.firstTodoItem.getId().toString());
+        this.mvc.perform(requestBuilder)
+                .andExpect(status().isOk())
+                .andExpect(content().string("SUCCESS"));
+        assertTrue(this.repository.findById(firstTodoItem.getId()).isEmpty());
     }
 }
